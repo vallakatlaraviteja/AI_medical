@@ -1,0 +1,165 @@
+{
+  "name": "WF-4 Daily Reset + Heartbeat",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "minutes", "minutesInterval": 30 }]
+        }
+      },
+      "id": "WF4-N01",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{$env.SUPABASE_URL}}/rest/v1/clinics?is_active=eq.true&select=clinic_id,timezone",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{$env.SUPABASE_SERVICE_ROLE_KEY}}" },
+            { "name": "Authorization", "value": "=Bearer {{$env.SUPABASE_SERVICE_ROLE_KEY}}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "WF4-N02",
+      "name": "Fetch All Active Clinics",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [470, 300]
+    },
+    {
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const clinics = $input.all().map(i => i.json);\nconst now = new Date();\n\n// Filter to clinics where local hour is 0 (midnight window 00:00-00:29)\nconst midnightClinics = clinics.filter(c => {\n  try {\n    const localTime = new Date(now.toLocaleString('en-US', { timeZone: c.timezone }));\n    return localTime.getHours() === 0 && localTime.getMinutes() < 30;\n  } catch (e) {\n    return false;\n  }\n});\n\nif (midnightClinics.length === 0) {\n  return []; // No clinics at midnight right now\n}\n\nreturn midnightClinics.map(c => ({json: c}));"
+      },
+      "id": "WF4-N03",
+      "name": "Filter Clinics at Midnight",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [690, 300]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "WF4-N04",
+      "name": "Reset Each Clinic (Loop)",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [910, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.SUPABASE_URL}}/rest/v1/rpc/fn_daily_reset",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{$env.SUPABASE_SERVICE_ROLE_KEY}}" },
+            { "name": "Authorization", "value": "=Bearer {{$env.SUPABASE_SERVICE_ROLE_KEY}}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"p_clinic_id\": \"{{$json.clinic_id}}\"}"
+      },
+      "id": "WF4-N05",
+      "name": "Call fn_daily_reset",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1130, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.SUPABASE_URL}}/rest/v1/rpc/fn_cleanup_idempotency_keys",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{$env.SUPABASE_SERVICE_ROLE_KEY}}" },
+            { "name": "Authorization", "value": "=Bearer {{$env.SUPABASE_SERVICE_ROLE_KEY}}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "WF4-N06",
+      "name": "Cleanup Idempotency Keys",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1350, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{$env.SUPABASE_URL}}/rest/v1/clinics?select=clinic_id&limit=1",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{$env.SUPABASE_SERVICE_ROLE_KEY}}" },
+            { "name": "Authorization", "value": "=Bearer {{$env.SUPABASE_SERVICE_ROLE_KEY}}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "WF4-N07",
+      "name": "Supabase Keepalive Ping",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1570, 300]
+    },
+    {
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "// Light CPU computation to prevent Oracle free-tier VM idle reclamation\n// Calculate primes up to 500K as a keepalive workload\nfunction sieve(limit) {\n  const arr = new Array(limit + 1).fill(true);\n  arr[0] = arr[1] = false;\n  for (let i = 2; i <= Math.sqrt(limit); i++) {\n    if (arr[i]) {\n      for (let j = i * i; j <= limit; j += i) {\n        arr[j] = false;\n      }\n    }\n  }\n  return arr.filter(Boolean).length;\n}\n\nconst primeCount = sieve(500000);\nreturn [{json: { heartbeat: true, primes_computed: primeCount, timestamp: new Date().toISOString() }}];"
+      },
+      "id": "WF4-N08",
+      "name": "Oracle VM Anti-Idle",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1790, 300]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [[{ "node": "Fetch All Active Clinics", "type": "main", "index": 0 }]]
+    },
+    "Fetch All Active Clinics": {
+      "main": [[{ "node": "Filter Clinics at Midnight", "type": "main", "index": 0 }]]
+    },
+    "Filter Clinics at Midnight": {
+      "main": [[{ "node": "Reset Each Clinic (Loop)", "type": "main", "index": 0 }]]
+    },
+    "Reset Each Clinic (Loop)": {
+      "main": [
+        [{ "node": "Call fn_daily_reset", "type": "main", "index": 0 }],
+        [{ "node": "Cleanup Idempotency Keys", "type": "main", "index": 0 }]
+      ]
+    },
+    "Call fn_daily_reset": {
+      "main": [[{ "node": "Reset Each Clinic (Loop)", "type": "main", "index": 0 }]]
+    },
+    "Cleanup Idempotency Keys": {
+      "main": [[{ "node": "Supabase Keepalive Ping", "type": "main", "index": 0 }]]
+    },
+    "Supabase Keepalive Ping": {
+      "main": [[{ "node": "Oracle VM Anti-Idle", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": { "executionOrder": "v1" },
+  "staticData": null,
+  "tags": [
+    { "name": "AI-Medical" },
+    { "name": "Cron" },
+    { "name": "Maintenance" }
+  ],
+  "triggerCount": 1,
+  "pinData": {}
+}

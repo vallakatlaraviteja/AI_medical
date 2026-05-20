@@ -1,0 +1,251 @@
+{
+  "name": "WF-1 WhatsApp Ingress",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "webhook/whatsapp",
+        "responseMode": "onReceived",
+        "responseCode": 200,
+        "options": {}
+      },
+      "id": "WF1-N01",
+      "name": "WhatsApp Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const crypto = require('crypto');\n\n// Handle Meta verification GET challenge\nconst method = $input.first().json.headers?.method || 'POST';\nif (method === 'GET') {\n  const mode = $input.first().json.query?.['hub.mode'];\n  const token = $input.first().json.query?.['hub.verify_token'];\n  const challenge = $input.first().json.query?.['hub.challenge'];\n  if (mode === 'subscribe' && token === $env.META_WHATSAPP_VERIFY_TOKEN) {\n    return [{json: {response: challenge}}];\n  }\n  throw new Error('Webhook verification failed');\n}\n\n// Verify X-Hub-Signature-256\nconst signature = $input.first().json.headers['x-hub-signature-256'];\nconst body = JSON.stringify($input.first().json.body);\nconst expected = 'sha256=' + crypto.createHmac('sha256', $env.META_APP_SECRET).update(body).digest('hex');\nif (signature !== expected) {\n  throw new Error('Invalid webhook signature');\n}\n\n// Extract message data\nconst entry = $input.first().json.body.entry?.[0];\nconst change = entry?.changes?.[0]?.value;\nconst message = change?.messages?.[0];\nif (!message || message.type !== 'text') {\n  return []; // skip non-text messages\n}\n\nreturn [{json: {\n  message_id: message.id,\n  patient_phone: message.from,\n  patient_message: message.text.body,\n  phone_number_id: change.metadata.phone_number_id,\n  timestamp: message.timestamp\n}}];"
+      },
+      "id": "WF1-N02",
+      "name": "Verify Webhook Signature",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [470, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{$env.SUPABASE_URL}}/rest/v1/clinics?whatsapp_phone_number_id=eq.{{$json.phone_number_id}}&is_active=eq.true&select=clinic_id&limit=1",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{$env.SUPABASE_SERVICE_ROLE_KEY}}" },
+            { "name": "Authorization", "value": "=Bearer {{$env.SUPABASE_SERVICE_ROLE_KEY}}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "WF1-N03",
+      "name": "Resolve Clinic ID",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [690, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.SUPABASE_URL}}/rest/v1/idempotency_keys",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{$env.SUPABASE_SERVICE_ROLE_KEY}}" },
+            { "name": "Authorization", "value": "=Bearer {{$env.SUPABASE_SERVICE_ROLE_KEY}}" },
+            { "name": "Prefer", "value": "return=minimal" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "message_id", "value": "={{$json.message_id}}" },
+            { "name": "clinic_id", "value": "={{$json.clinic_id}}" }
+          ]
+        },
+        "options": {
+          "response": { "response": { "neverError": true } }
+        }
+      },
+      "id": "WF1-N04",
+      "name": "Idempotency Check",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [910, 300]
+    },
+    {
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "// Check if idempotency insert returned 409 (duplicate)\nconst statusCode = $input.first().json.statusCode || $input.first().json.responseStatusCode;\nif (statusCode === 409) {\n  return []; // Already processed — stop silently\n}\n\n// Rate limiter: count messages in last 5 minutes\nconst supabaseUrl = $env.SUPABASE_URL;\nconst serviceKey = $env.SUPABASE_SERVICE_ROLE_KEY;\nconst clinicId = $json.clinic_id;\nconst patientPhone = $json.patient_phone;\n\nconst fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();\nconst countUrl = `${supabaseUrl}/rest/v1/conversations?clinic_id=eq.${clinicId}&patient_phone=eq.${patientPhone}&created_at=gte.${fiveMinAgo}&select=conversation_id`;\n\nconst response = await fetch(countUrl, {\n  headers: {\n    'apikey': serviceKey,\n    'Authorization': `Bearer ${serviceKey}`,\n    'Prefer': 'count=exact'\n  }\n});\n\nconst countHeader = response.headers.get('content-range');\nconst count = countHeader ? parseInt(countHeader.split('/')[1] || '0') : 0;\n\nif (count >= 10) {\n  return [{json: {\n    rate_limited: true,\n    safe_message: \"Apologies, please slow down. Your messages are arriving too quickly. Try again in a few minutes.\",\n    patient_phone: patientPhone,\n    phone_number_id: $json.phone_number_id\n  }}];\n}\n\nreturn [{json: {\n  rate_limited: false,\n  message_id: $json.message_id,\n  clinic_id: clinicId,\n  patient_phone: patientPhone,\n  patient_message: $json.patient_message,\n  phone_number_id: $json.phone_number_id,\n  timestamp: $json.timestamp\n}}];"
+      },
+      "id": "WF1-N05",
+      "name": "Rate Limiter",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1130, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.rate_limited}}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "WF1-N05-IF",
+      "name": "IF Rate Limited",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1350, 300]
+    },
+    {
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "let msg = $json.patient_message;\n\n// Strip control characters (keep newlines)\nmsg = msg.replace(/[\\x00-\\x09\\x0b-\\x1f]/g, '');\n\n// Cap at 2000 characters\nmsg = msg.substring(0, 2000);\n\n// Check prompt injection patterns\nconst injectionPatterns = [\n  /ignore (all|previous) instructions/i,\n  /you are now/i,\n  /system prompt/i,\n  /reveal your instructions/i,\n  /forget everything/i,\n  /new persona/i\n];\n\nconst isInjection = injectionPatterns.some(p => p.test(msg));\n\nif (isInjection) {\n  return [{json: {\n    injection_blocked: true,\n    safe_message: \"I'm sorry, I had trouble processing that. Could you please rephrase your question? Our team is here to help you book an appointment.\",\n    patient_phone: $json.patient_phone,\n    phone_number_id: $json.phone_number_id\n  }}];\n}\n\nreturn [{json: {\n  injection_blocked: false,\n  sanitized_message: msg,\n  message_id: $json.message_id,\n  clinic_id: $json.clinic_id,\n  patient_phone: $json.patient_phone,\n  phone_number_id: $json.phone_number_id,\n  timestamp: $json.timestamp\n}}];"
+      },
+      "id": "WF1-N06",
+      "name": "Input Sanitizer",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1570, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.injection_blocked}}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "WF1-N06-IF",
+      "name": "IF Injection Blocked",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1790, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.SUPABASE_URL}}/rest/v1/conversations",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{$env.SUPABASE_SERVICE_ROLE_KEY}}" },
+            { "name": "Authorization", "value": "=Bearer {{$env.SUPABASE_SERVICE_ROLE_KEY}}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"clinic_id\": \"{{$json.clinic_id}}\", \"patient_phone\": \"{{$json.patient_phone}}\", \"role\": \"user\", \"content\": \"{{$json.sanitized_message}}\"}"
+      },
+      "id": "WF1-N07",
+      "name": "Store User Message",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2010, 100]
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ /* WF-2 AI Router workflow ID - set after import */ '' }}",
+        "options": {}
+      },
+      "id": "WF1-N08",
+      "name": "Trigger WF-2 (AI Router)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [2230, 100]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v19.0/{{$json.phone_number_id}}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{$env.META_WHATSAPP_ACCESS_TOKEN}}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"messaging_product\": \"whatsapp\", \"to\": \"{{$json.patient_phone}}\", \"type\": \"text\", \"text\": {\"body\": \"{{$json.safe_message}}\"}}"
+      },
+      "id": "WF1-N09",
+      "name": "Send Fallback WhatsApp Reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1790, 500]
+    }
+  ],
+  "connections": {
+    "WhatsApp Webhook": {
+      "main": [
+        [{ "node": "Verify Webhook Signature", "type": "main", "index": 0 }]
+      ]
+    },
+    "Verify Webhook Signature": {
+      "main": [
+        [{ "node": "Resolve Clinic ID", "type": "main", "index": 0 }]
+      ]
+    },
+    "Resolve Clinic ID": {
+      "main": [
+        [{ "node": "Idempotency Check", "type": "main", "index": 0 }]
+      ]
+    },
+    "Idempotency Check": {
+      "main": [
+        [{ "node": "Rate Limiter", "type": "main", "index": 0 }]
+      ]
+    },
+    "Rate Limiter": {
+      "main": [
+        [{ "node": "IF Rate Limited", "type": "main", "index": 0 }]
+      ]
+    },
+    "IF Rate Limited": {
+      "main": [
+        [{ "node": "Send Fallback WhatsApp Reply", "type": "main", "index": 0 }],
+        [{ "node": "Input Sanitizer", "type": "main", "index": 0 }]
+      ]
+    },
+    "Input Sanitizer": {
+      "main": [
+        [{ "node": "IF Injection Blocked", "type": "main", "index": 0 }]
+      ]
+    },
+    "IF Injection Blocked": {
+      "main": [
+        [{ "node": "Send Fallback WhatsApp Reply", "type": "main", "index": 0 }],
+        [{ "node": "Store User Message", "type": "main", "index": 0 }]
+      ]
+    },
+    "Store User Message": {
+      "main": [
+        [{ "node": "Trigger WF-2 (AI Router)", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    { "name": "AI-Medical" },
+    { "name": "WhatsApp" },
+    { "name": "Ingress" }
+  ],
+  "triggerCount": 1,
+  "pinData": {}
+}

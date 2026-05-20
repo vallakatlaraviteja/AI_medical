@@ -1,0 +1,222 @@
+{
+  "name": "WF-3 Email Layer (4-slot rotation)",
+  "nodes": [
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.SUPABASE_URL}}/rest/v1/rpc/fn_pick_email_slot",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{$env.SUPABASE_SERVICE_ROLE_KEY}}" },
+            { "name": "Authorization", "value": "=Bearer {{$env.SUPABASE_SERVICE_ROLE_KEY}}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"p_clinic_id\": \"{{$json.clinic_id}}\"}"
+      },
+      "id": "WF3-N01",
+      "name": "Pick Email Slot",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            { "value1": "={{$json.slot_name}}", "value2": "" }
+          ]
+        }
+      },
+      "id": "WF3-N01-IF",
+      "name": "IF Slot Available",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [470, 300]
+    },
+    {
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const patient = $json.patient_name;\nconst service = $json.service;\nconst date = $json.appointment_date;\nconst time = $json.appointment_time;\nconst clinicName = $json.clinic_name;\nconst clinicAddr = $json.clinic_address;\nconst clinicPhone = $json.clinic_phone;\n\nconst subject = `Appointment Confirmed — ${service} at ${clinicName}`;\n\nconst html = `<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\"></head><body style=\"font-family: -apple-system, BlinkMacSystemFont, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;\"><div style=\"background: #f8f9fa; border-radius: 8px; padding: 30px;\"><h1 style=\"color: #2d3748; margin-top: 0;\">Appointment Confirmed ✓</h1><p style=\"color: #4a5568; font-size: 16px;\">Hi ${patient},</p><p style=\"color: #4a5568;\">Your appointment has been confirmed. Here are the details:</p><table style=\"width: 100%; border-collapse: collapse; margin: 20px 0;\"><tr><td style=\"padding: 10px; border-bottom: 1px solid #e2e8f0; font-weight: bold; color: #2d3748;\">Service</td><td style=\"padding: 10px; border-bottom: 1px solid #e2e8f0; color: #4a5568;\">${service}</td></tr><tr><td style=\"padding: 10px; border-bottom: 1px solid #e2e8f0; font-weight: bold; color: #2d3748;\">Date</td><td style=\"padding: 10px; border-bottom: 1px solid #e2e8f0; color: #4a5568;\">${date}</td></tr><tr><td style=\"padding: 10px; border-bottom: 1px solid #e2e8f0; font-weight: bold; color: #2d3748;\">Time</td><td style=\"padding: 10px; border-bottom: 1px solid #e2e8f0; color: #4a5568;\">${time}</td></tr><tr><td style=\"padding: 10px; border-bottom: 1px solid #e2e8f0; font-weight: bold; color: #2d3748;\">Location</td><td style=\"padding: 10px; border-bottom: 1px solid #e2e8f0; color: #4a5568;\">${clinicAddr}</td></tr></table><div style=\"background: #fff; border-left: 4px solid #4299e1; padding: 15px; margin: 20px 0; border-radius: 4px;\"><p style=\"margin: 0; color: #2d3748; font-weight: bold;\">Need to reschedule?</p><p style=\"margin: 5px 0 0; color: #4a5568;\">Reply to this email or call us at ${clinicPhone}</p></div><p style=\"color: #718096; font-size: 14px; margin-top: 30px;\">— ${clinicName}</p></div></body></html>`;\n\nreturn [{json: { ...$json, email_subject: subject, email_html_body: html }}];"
+      },
+      "id": "WF3-N02",
+      "name": "Build Email HTML",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [690, 200]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "rules": [
+            { "output": 0, "value": "GMAIL_1" },
+            { "output": 1, "value": "GMAIL_2" },
+            { "output": 2, "value": "GMAIL_3" },
+            { "output": 3, "value": "BREVO" }
+          ]
+        },
+        "dataType": "string",
+        "value1": "={{$json.slot_name}}"
+      },
+      "id": "WF3-N03",
+      "name": "Switch Email Slot",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 2,
+      "position": [910, 200]
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{$env.GMAIL_1_USER}}",
+        "toEmail": "={{$json.patient_email}}",
+        "subject": "={{$json.email_subject}}",
+        "html": "={{$json.email_html_body}}",
+        "options": {
+          "replyTo": "={{$json.reply_to}}"
+        }
+      },
+      "id": "WF3-N04a",
+      "name": "Send via Gmail 1",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [1130, 50],
+      "credentials": { "smtp": { "id": "gmail1", "name": "Gmail_Account_1" } }
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{$env.GMAIL_2_USER}}",
+        "toEmail": "={{$json.patient_email}}",
+        "subject": "={{$json.email_subject}}",
+        "html": "={{$json.email_html_body}}",
+        "options": {
+          "replyTo": "={{$json.reply_to}}"
+        }
+      },
+      "id": "WF3-N04b",
+      "name": "Send via Gmail 2",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [1130, 200],
+      "credentials": { "smtp": { "id": "gmail2", "name": "Gmail_Account_2" } }
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{$env.GMAIL_3_USER}}",
+        "toEmail": "={{$json.patient_email}}",
+        "subject": "={{$json.email_subject}}",
+        "html": "={{$json.email_html_body}}",
+        "options": {
+          "replyTo": "={{$json.reply_to}}"
+        }
+      },
+      "id": "WF3-N04c",
+      "name": "Send via Gmail 3",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [1130, 350],
+      "credentials": { "smtp": { "id": "gmail3", "name": "Gmail_Account_3" } }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.brevo.com/v3/smtp/email",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "api-key", "value": "={{$env.BREVO_API_KEY}}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"sender\": {\"name\": \"{{$json.email_from_name}}\", \"email\": \"{{$env.BREVO_SENDER_EMAIL}}\"}, \"to\": [{\"email\": \"{{$json.patient_email}}\", \"name\": \"{{$json.patient_name}}\"}], \"subject\": \"{{$json.email_subject}}\", \"htmlContent\": \"{{$json.email_html_body}}\"}"
+      },
+      "id": "WF3-N04d",
+      "name": "Send via Brevo API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1130, 500]
+    },
+    {
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const supabaseUrl = $env.SUPABASE_URL;\nconst key = $env.SUPABASE_SERVICE_ROLE_KEY;\nconst clinicId = $json.clinic_id;\nconst slotName = $json.slot_name;\n\n// Increment email quota\nawait fetch(`${supabaseUrl}/rest/v1/rpc/fn_increment_email_quota`, {\n  method: 'POST',\n  headers: { 'apikey': key, 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },\n  body: JSON.stringify({ p_clinic_id: clinicId, p_slot_name: slotName })\n});\n\n// Mark provider success\nawait fetch(`${supabaseUrl}/rest/v1/rpc/fn_mark_provider_success`, {\n  method: 'POST',\n  headers: { 'apikey': key, 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },\n  body: JSON.stringify({ p_clinic_id: clinicId, p_provider_name: slotName })\n});\n\n// Audit log\nawait fetch(`${supabaseUrl}/rest/v1/audit_log`, {\n  method: 'POST',\n  headers: { 'apikey': key, 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },\n  body: JSON.stringify({ clinic_id: clinicId, event_type: 'email_sent', payload: { slot_used: slotName, to: $json.patient_email } })\n});\n\nreturn [{json: { success: true, slot_used: slotName }}];"
+      },
+      "id": "WF3-N05",
+      "name": "Increment Quota + Mark Success",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1350, 200]
+    },
+    {
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const supabaseUrl = $env.SUPABASE_URL;\nconst key = $env.SUPABASE_SERVICE_ROLE_KEY;\nconst clinicId = $json.clinic_id;\nconst failedSlot = $json.slot_name;\nconst retryCount = ($json.retry_count || 0) + 1;\n\n// Mark provider failure\nawait fetch(`${supabaseUrl}/rest/v1/rpc/fn_mark_provider_failure`, {\n  method: 'POST',\n  headers: { 'apikey': key, 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },\n  body: JSON.stringify({ p_clinic_id: clinicId, p_provider_name: failedSlot, p_error: $json.error?.message || 'Send failed' })\n});\n\n// Try to pick next slot\nconst res = await fetch(`${supabaseUrl}/rest/v1/rpc/fn_pick_email_slot`, {\n  method: 'POST',\n  headers: { 'apikey': key, 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },\n  body: JSON.stringify({ p_clinic_id: clinicId })\n});\nconst nextSlot = await res.json();\n\nif (!nextSlot || retryCount >= 4) {\n  return [{json: { ...$json, all_failed: true, retry_count: retryCount }}];\n}\n\nreturn [{json: { ...$json, slot_name: nextSlot, retry_count: retryCount, all_failed: false }}];"
+      },
+      "id": "WF3-N06",
+      "name": "Handle Send Failure",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1350, 450]
+    },
+    {
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const supabaseUrl = $env.SUPABASE_URL;\nconst key = $env.SUPABASE_SERVICE_ROLE_KEY;\n\n// Insert into DLQ\nawait fetch(`${supabaseUrl}/rest/v1/dead_letter_queue`, {\n  method: 'POST',\n  headers: { 'apikey': key, 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },\n  body: JSON.stringify({ clinic_id: $json.clinic_id, workflow_name: 'WF-3', payload: { patient_email: $json.patient_email, subject: $json.email_subject }, error_message: 'All email providers exhausted', status: 'pending', retry_count: 0, max_retries: 3 })\n});\n\n// Telegram alert\nawait fetch(`https://api.telegram.org/bot${$env.TELEGRAM_ADMIN_BOT_TOKEN}/sendMessage`, {\n  method: 'POST',\n  headers: { 'Content-Type': 'application/json' },\n  body: JSON.stringify({ chat_id: $env.TELEGRAM_ADMIN_CHAT_ID, text: `\\u26a0 All email slots exhausted for clinic ${$json.clinic_id}. Email queued in DLQ.` })\n});\n\nreturn [{json: { success: false, reason: 'all_slots_exhausted' }}];"
+      },
+      "id": "WF3-N08",
+      "name": "All Email Slots Failed - DLQ + Alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1570, 450]
+    }
+  ],
+  "connections": {
+    "Pick Email Slot": {
+      "main": [[{ "node": "IF Slot Available", "type": "main", "index": 0 }]]
+    },
+    "IF Slot Available": {
+      "main": [
+        [{ "node": "All Email Slots Failed - DLQ + Alert", "type": "main", "index": 0 }],
+        [{ "node": "Build Email HTML", "type": "main", "index": 0 }]
+      ]
+    },
+    "Build Email HTML": {
+      "main": [[{ "node": "Switch Email Slot", "type": "main", "index": 0 }]]
+    },
+    "Switch Email Slot": {
+      "main": [
+        [{ "node": "Send via Gmail 1", "type": "main", "index": 0 }],
+        [{ "node": "Send via Gmail 2", "type": "main", "index": 0 }],
+        [{ "node": "Send via Gmail 3", "type": "main", "index": 0 }],
+        [{ "node": "Send via Brevo API", "type": "main", "index": 0 }]
+      ]
+    },
+    "Send via Gmail 1": {
+      "main": [[{ "node": "Increment Quota + Mark Success", "type": "main", "index": 0 }]]
+    },
+    "Send via Gmail 2": {
+      "main": [[{ "node": "Increment Quota + Mark Success", "type": "main", "index": 0 }]]
+    },
+    "Send via Gmail 3": {
+      "main": [[{ "node": "Increment Quota + Mark Success", "type": "main", "index": 0 }]]
+    },
+    "Send via Brevo API": {
+      "main": [[{ "node": "Increment Quota + Mark Success", "type": "main", "index": 0 }]]
+    },
+    "Handle Send Failure": {
+      "main": [[{ "node": "Switch Email Slot", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": { "executionOrder": "v1" },
+  "staticData": null,
+  "tags": [
+    { "name": "AI-Medical" },
+    { "name": "Email" },
+    { "name": "Rotation" }
+  ],
+  "triggerCount": 0,
+  "pinData": {}
+}
