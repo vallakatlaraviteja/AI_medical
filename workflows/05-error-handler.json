@@ -3,36 +3,48 @@
   "nodes": [
     {
       "parameters": {},
-      "id": "WF5-N01",
+      "id": "fae25ffb-1761-493a-a8af-e9fddd87ef8b",
       "name": "Error Trigger",
       "type": "n8n-nodes-base.errorTrigger",
       "typeVersion": 1,
-      "position": [250, 300]
+      "position": [
+        250,
+        300
+      ]
     },
     {
       "parameters": {
         "language": "javaScript",
         "jsCode": "const error = $input.first().json;\nconst errorMsg = error.execution?.error?.message || error.message || 'Unknown error';\nconst workflowName = error.workflow?.name || 'Unknown';\nconst nodeName = error.execution?.lastNodeExecuted || 'Unknown';\nconst clinicId = error.execution?.data?.clinic_id || null;\nconst patientPhone = error.execution?.data?.patient_phone || null;\nconst phoneNumberId = error.execution?.data?.phone_number_id || null;\n\n// Classify error\nconst recoverablePatterns = [/timeout/i, /5\\d{2}/, /429/, /ECONNREFUSED/i, /ETIMEDOUT/i, /socket hang up/i];\nconst isRecoverable = recoverablePatterns.some(p => p.test(errorMsg));\n\nreturn [{json: {\n  error_message: errorMsg,\n  workflow_name: workflowName,\n  node_name: nodeName,\n  clinic_id: clinicId,\n  patient_phone: patientPhone,\n  phone_number_id: phoneNumberId,\n  is_recoverable: isRecoverable,\n  timestamp: new Date().toISOString(),\n  original_data: error.execution?.data || {}\n}}];"
       },
-      "id": "WF5-N02",
+      "id": "bacbe0be-5b1a-425e-b3ad-93f710a540b3",
       "name": "Classify Error",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [470, 300]
+      "position": [
+        470,
+        300
+      ]
     },
     {
       "parameters": {
         "conditions": {
           "boolean": [
-            { "value1": "={{$json.is_recoverable}}", "value2": true }
+            {
+              "value1": "={{$json.is_recoverable}}",
+              "value2": true
+            }
           ]
         }
       },
-      "id": "WF5-N02-IF",
+      "id": "2834cb70-5b38-4a7a-8bb6-fcc29c7e3b98",
       "name": "IF Recoverable",
       "type": "n8n-nodes-base.if",
       "typeVersion": 1,
-      "position": [690, 300]
+      "position": [
+        690,
+        300
+      ]
     },
     {
       "parameters": {
@@ -41,20 +53,32 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "apikey", "value": "={{$env.SUPABASE_SERVICE_ROLE_KEY}}" },
-            { "name": "Authorization", "value": "=Bearer {{$env.SUPABASE_SERVICE_ROLE_KEY}}" },
-            { "name": "Content-Type", "value": "application/json" }
+            {
+              "name": "apikey",
+              "value": "={{$env.SUPABASE_SERVICE_ROLE_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.SUPABASE_SERVICE_ROLE_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
           ]
         },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={\"clinic_id\": \"{{$json.clinic_id}}\", \"workflow_name\": \"{{$json.workflow_name}}\", \"payload\": {{JSON.stringify($json.original_data)}}, \"error_message\": \"{{$json.error_message}}\", \"retry_count\": 0, \"max_retries\": 3, \"status\": \"pending\"}"
       },
-      "id": "WF5-N03",
+      "id": "1458bf18-9edc-4441-9215-4fafc97467cd",
       "name": "Push to DLQ (Recoverable)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [910, 200]
+      "position": [
+        910,
+        200
+      ]
     },
     {
       "parameters": {
@@ -63,22 +87,35 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "Authorization", "value": "=Bearer {{$env.META_WHATSAPP_ACCESS_TOKEN}}" },
-            { "name": "Content-Type", "value": "application/json" }
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.META_WHATSAPP_ACCESS_TOKEN}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
           ]
         },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={\"messaging_product\": \"whatsapp\", \"to\": \"{{$json.patient_phone}}\", \"type\": \"text\", \"text\": {\"body\": \"Hi! We received your message but had a brief technical issue. We're working on it and will get back to you shortly. If urgent, please call us directly.\"}}",
         "options": {
-          "response": { "response": { "neverError": true } }
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
         }
       },
-      "id": "WF5-N04",
+      "id": "76486e65-a564-4d86-9ca7-8e0950f7abe4",
       "name": "Send Patient Fallback",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1130, 200]
+      "position": [
+        1130,
+        200
+      ]
     },
     {
       "parameters": {
@@ -87,18 +124,24 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "Content-Type", "value": "application/json" }
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
           ]
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\"chat_id\": \"{{$env.TELEGRAM_ADMIN_CHAT_ID}}\", \"text\": \"🚨 FATAL ERROR in {{$json.workflow_name}}\\n\\nClinic: {{$json.clinic_id}}\\nNode: {{$json.node_name}}\\nError: {{$json.error_message}}\\nTime: {{$json.timestamp}}\\n\\nManual intervention required.\", \"parse_mode\": \"HTML\"}"
+        "jsonBody": "={\"chat_id\": \"{{$env.TELEGRAM_ADMIN_CHAT_ID}}\", \"text\": \"\ud83d\udea8 FATAL ERROR in {{$json.workflow_name}}\\n\\nClinic: {{$json.clinic_id}}\\nNode: {{$json.node_name}}\\nError: {{$json.error_message}}\\nTime: {{$json.timestamp}}\\n\\nManual intervention required.\", \"parse_mode\": \"HTML\"}"
       },
-      "id": "WF5-N05",
+      "id": "3badbdc1-304d-439a-974e-f18a109fee66",
       "name": "Fatal Error - Alert Admin",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [910, 450]
+      "position": [
+        910,
+        450
+      ]
     },
     {
       "parameters": {
@@ -107,32 +150,52 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "apikey", "value": "={{$env.SUPABASE_SERVICE_ROLE_KEY}}" },
-            { "name": "Authorization", "value": "=Bearer {{$env.SUPABASE_SERVICE_ROLE_KEY}}" },
-            { "name": "Content-Type", "value": "application/json" }
+            {
+              "name": "apikey",
+              "value": "={{$env.SUPABASE_SERVICE_ROLE_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.SUPABASE_SERVICE_ROLE_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
           ]
         },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={\"clinic_id\": \"{{$json.clinic_id}}\", \"workflow_name\": \"{{$json.workflow_name}}\", \"payload\": {{JSON.stringify($json.original_data)}}, \"error_message\": \"FATAL: {{$json.error_message}}\", \"status\": \"exhausted\", \"retry_count\": 99}"
       },
-      "id": "WF5-N06",
+      "id": "5c72b2ef-28ae-4ec5-b8d0-15bcd8660f06",
       "name": "Log Fatal to DLQ (exhausted)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1130, 450]
+      "position": [
+        1130,
+        450
+      ]
     },
     {
       "parameters": {
         "rule": {
-          "interval": [{ "field": "minutes", "minutesInterval": 5 }]
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 5
+            }
+          ]
         }
       },
-      "id": "WF5-N10",
+      "id": "7047f282-4e93-4b9b-94a8-39fd3ca7c373",
       "name": "DLQ Retry Trigger (Cron)",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
-      "position": [250, 650]
+      "position": [
+        250,
+        650
+      ]
     },
     {
       "parameters": {
@@ -141,86 +204,195 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "apikey", "value": "={{$env.SUPABASE_SERVICE_ROLE_KEY}}" },
-            { "name": "Authorization", "value": "=Bearer {{$env.SUPABASE_SERVICE_ROLE_KEY}}" }
+            {
+              "name": "apikey",
+              "value": "={{$env.SUPABASE_SERVICE_ROLE_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.SUPABASE_SERVICE_ROLE_KEY}}"
+            }
           ]
         },
         "options": {}
       },
-      "id": "WF5-N11",
+      "id": "22851ede-a962-4399-9adf-7f1aa8e4b26d",
       "name": "Fetch Pending DLQ Items",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [470, 650]
+      "position": [
+        470,
+        650
+      ]
     },
     {
       "parameters": {
         "batchSize": 1,
         "options": {}
       },
-      "id": "WF5-N12",
+      "id": "c9f5abfa-005b-4024-80a0-0a656fb919c6",
       "name": "Process Each DLQ Item",
       "type": "n8n-nodes-base.splitInBatches",
       "typeVersion": 3,
-      "position": [690, 650]
+      "position": [
+        690,
+        650
+      ]
     },
     {
       "parameters": {
         "language": "javaScript",
         "jsCode": "const supabaseUrl = $env.SUPABASE_URL;\nconst key = $env.SUPABASE_SERVICE_ROLE_KEY;\nconst item = $json;\n\n// Mark as processing\nawait fetch(`${supabaseUrl}/rest/v1/dead_letter_queue?dlq_id=eq.${item.dlq_id}`, {\n  method: 'PATCH',\n  headers: { 'apikey': key, 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },\n  body: JSON.stringify({ status: 'processing' })\n});\n\n// Attempt re-execution by triggering the original workflow\n// Note: In production, this would use n8n's internal API to re-execute\n// For now, we increment retry_count and apply exponential backoff\nconst newRetryCount = (item.retry_count || 0) + 1;\n\nif (newRetryCount >= (item.max_retries || 3)) {\n  // Exhausted - mark as failed\n  await fetch(`${supabaseUrl}/rest/v1/dead_letter_queue?dlq_id=eq.${item.dlq_id}`, {\n    method: 'PATCH',\n    headers: { 'apikey': key, 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },\n    body: JSON.stringify({ status: 'exhausted', retry_count: newRetryCount })\n  });\n\n  // Alert admin\n  await fetch(`https://api.telegram.org/bot${$env.TELEGRAM_ADMIN_BOT_TOKEN}/sendMessage`, {\n    method: 'POST',\n    headers: { 'Content-Type': 'application/json' },\n    body: JSON.stringify({ chat_id: $env.TELEGRAM_ADMIN_CHAT_ID, text: `\\u26a0 DLQ item exhausted after ${newRetryCount} retries\\nWorkflow: ${item.workflow_name}\\nClinic: ${item.clinic_id}\\nError: ${item.error_message}` })\n  });\n} else {\n  // Exponential backoff: 5min * 2^retry_count\n  const backoffMinutes = 5 * Math.pow(2, newRetryCount);\n  const nextRetry = new Date(Date.now() + backoffMinutes * 60000).toISOString();\n\n  await fetch(`${supabaseUrl}/rest/v1/dead_letter_queue?dlq_id=eq.${item.dlq_id}`, {\n    method: 'PATCH',\n    headers: { 'apikey': key, 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },\n    body: JSON.stringify({ status: 'pending', retry_count: newRetryCount, next_retry_at: nextRetry })\n  });\n}\n\nreturn [{json: { dlq_id: item.dlq_id, retry_count: newRetryCount, status: newRetryCount >= (item.max_retries || 3) ? 'exhausted' : 'pending' }}];"
       },
-      "id": "WF5-N13",
+      "id": "c7090fc2-2dbe-4929-80a7-146c97c9a39b",
       "name": "Retry Execution",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [910, 650]
+      "position": [
+        910,
+        650
+      ]
     }
   ],
   "connections": {
     "Error Trigger": {
-      "main": [[{ "node": "Classify Error", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Classify Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Classify Error": {
-      "main": [[{ "node": "IF Recoverable", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "IF Recoverable",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "IF Recoverable": {
       "main": [
-        [{ "node": "Push to DLQ (Recoverable)", "type": "main", "index": 0 }],
-        [{ "node": "Fatal Error - Alert Admin", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Push to DLQ (Recoverable)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fatal Error - Alert Admin",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Push to DLQ (Recoverable)": {
-      "main": [[{ "node": "Send Patient Fallback", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Send Patient Fallback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Fatal Error - Alert Admin": {
-      "main": [[{ "node": "Log Fatal to DLQ (exhausted)", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Log Fatal to DLQ (exhausted)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Log Fatal to DLQ (exhausted)": {
-      "main": [[{ "node": "Send Patient Fallback", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Send Patient Fallback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "DLQ Retry Trigger (Cron)": {
-      "main": [[{ "node": "Fetch Pending DLQ Items", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Fetch Pending DLQ Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Fetch Pending DLQ Items": {
-      "main": [[{ "node": "Process Each DLQ Item", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Process Each DLQ Item",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Process Each DLQ Item": {
       "main": [
-        [{ "node": "Retry Execution", "type": "main", "index": 0 }],
+        [
+          {
+            "node": "Retry Execution",
+            "type": "main",
+            "index": 0
+          }
+        ],
         []
       ]
     },
     "Retry Execution": {
-      "main": [[{ "node": "Process Each DLQ Item", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Process Each DLQ Item",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
-  "settings": { "executionOrder": "v1" },
+  "settings": {
+    "executionOrder": "v1"
+  },
   "staticData": null,
   "tags": [
-    { "name": "AI-Medical" },
-    { "name": "Error-Handling" },
-    { "name": "DLQ" }
+    {
+      "name": "AI-Medical"
+    },
+    {
+      "name": "Error-Handling"
+    },
+    {
+      "name": "DLQ"
+    }
   ],
   "triggerCount": 2,
-  "pinData": {}
+  "pinData": {},
+  "meta": {
+    "instanceId": "ai-medical-blueprint-instance"
+  },
+  "id": "82604f98-907a-4b03-8dc5-dd354cee9454"
 }

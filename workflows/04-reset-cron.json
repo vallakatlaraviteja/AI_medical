@@ -4,14 +4,22 @@
     {
       "parameters": {
         "rule": {
-          "interval": [{ "field": "minutes", "minutesInterval": 30 }]
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 30
+            }
+          ]
         }
       },
-      "id": "WF4-N01",
+      "id": "61abecc3-489c-440d-8962-545076f0f934",
       "name": "Schedule Trigger",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
-      "position": [250, 300]
+      "position": [
+        250,
+        300
+      ]
     },
     {
       "parameters": {
@@ -20,39 +28,54 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "apikey", "value": "={{$env.SUPABASE_SERVICE_ROLE_KEY}}" },
-            { "name": "Authorization", "value": "=Bearer {{$env.SUPABASE_SERVICE_ROLE_KEY}}" }
+            {
+              "name": "apikey",
+              "value": "={{$env.SUPABASE_SERVICE_ROLE_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.SUPABASE_SERVICE_ROLE_KEY}}"
+            }
           ]
         },
         "options": {}
       },
-      "id": "WF4-N02",
+      "id": "de7fd656-ae0a-4c09-8e12-6451301f3bbd",
       "name": "Fetch All Active Clinics",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [470, 300]
+      "position": [
+        470,
+        300
+      ]
     },
     {
       "parameters": {
         "language": "javaScript",
         "jsCode": "const clinics = $input.all().map(i => i.json);\nconst now = new Date();\n\n// Filter to clinics where local hour is 0 (midnight window 00:00-00:29)\nconst midnightClinics = clinics.filter(c => {\n  try {\n    const localTime = new Date(now.toLocaleString('en-US', { timeZone: c.timezone }));\n    return localTime.getHours() === 0 && localTime.getMinutes() < 30;\n  } catch (e) {\n    return false;\n  }\n});\n\nif (midnightClinics.length === 0) {\n  return []; // No clinics at midnight right now\n}\n\nreturn midnightClinics.map(c => ({json: c}));"
       },
-      "id": "WF4-N03",
+      "id": "6312107c-af64-4a78-bf38-b1908f7062a2",
       "name": "Filter Clinics at Midnight",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [690, 300]
+      "position": [
+        690,
+        300
+      ]
     },
     {
       "parameters": {
         "batchSize": 1,
         "options": {}
       },
-      "id": "WF4-N04",
+      "id": "446a8547-0fc9-491f-b26a-5d132c49db5d",
       "name": "Reset Each Clinic (Loop)",
       "type": "n8n-nodes-base.splitInBatches",
       "typeVersion": 3,
-      "position": [910, 300]
+      "position": [
+        910,
+        300
+      ]
     },
     {
       "parameters": {
@@ -61,20 +84,32 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "apikey", "value": "={{$env.SUPABASE_SERVICE_ROLE_KEY}}" },
-            { "name": "Authorization", "value": "=Bearer {{$env.SUPABASE_SERVICE_ROLE_KEY}}" },
-            { "name": "Content-Type", "value": "application/json" }
+            {
+              "name": "apikey",
+              "value": "={{$env.SUPABASE_SERVICE_ROLE_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.SUPABASE_SERVICE_ROLE_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
           ]
         },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={\"p_clinic_id\": \"{{$json.clinic_id}}\"}"
       },
-      "id": "WF4-N05",
+      "id": "de085483-4c27-4153-9f7c-5d03a6e1a252",
       "name": "Call fn_daily_reset",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1130, 300]
+      "position": [
+        1130,
+        300
+      ]
     },
     {
       "parameters": {
@@ -83,18 +118,30 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "apikey", "value": "={{$env.SUPABASE_SERVICE_ROLE_KEY}}" },
-            { "name": "Authorization", "value": "=Bearer {{$env.SUPABASE_SERVICE_ROLE_KEY}}" },
-            { "name": "Content-Type", "value": "application/json" }
+            {
+              "name": "apikey",
+              "value": "={{$env.SUPABASE_SERVICE_ROLE_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.SUPABASE_SERVICE_ROLE_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
           ]
         },
         "options": {}
       },
-      "id": "WF4-N06",
+      "id": "7d36bd48-93ac-4fcf-a411-aa0686846b04",
       "name": "Cleanup Idempotency Keys",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1350, 300]
+      "position": [
+        1350,
+        300
+      ]
     },
     {
       "parameters": {
@@ -103,63 +150,147 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "apikey", "value": "={{$env.SUPABASE_SERVICE_ROLE_KEY}}" },
-            { "name": "Authorization", "value": "=Bearer {{$env.SUPABASE_SERVICE_ROLE_KEY}}" }
+            {
+              "name": "apikey",
+              "value": "={{$env.SUPABASE_SERVICE_ROLE_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.SUPABASE_SERVICE_ROLE_KEY}}"
+            }
           ]
         },
         "options": {}
       },
-      "id": "WF4-N07",
+      "id": "1217f279-55a9-4ecc-85b2-f5149868780c",
       "name": "Supabase Keepalive Ping",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1570, 300]
+      "position": [
+        1570,
+        300
+      ]
     },
     {
       "parameters": {
         "language": "javaScript",
         "jsCode": "// Light CPU computation to prevent Oracle free-tier VM idle reclamation\n// Calculate primes up to 500K as a keepalive workload\nfunction sieve(limit) {\n  const arr = new Array(limit + 1).fill(true);\n  arr[0] = arr[1] = false;\n  for (let i = 2; i <= Math.sqrt(limit); i++) {\n    if (arr[i]) {\n      for (let j = i * i; j <= limit; j += i) {\n        arr[j] = false;\n      }\n    }\n  }\n  return arr.filter(Boolean).length;\n}\n\nconst primeCount = sieve(500000);\nreturn [{json: { heartbeat: true, primes_computed: primeCount, timestamp: new Date().toISOString() }}];"
       },
-      "id": "WF4-N08",
+      "id": "1e8a9eac-e7da-480a-9645-af57e6023d2c",
       "name": "Oracle VM Anti-Idle",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1790, 300]
+      "position": [
+        1790,
+        300
+      ]
     }
   ],
   "connections": {
     "Schedule Trigger": {
-      "main": [[{ "node": "Fetch All Active Clinics", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Fetch All Active Clinics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Fetch All Active Clinics": {
-      "main": [[{ "node": "Filter Clinics at Midnight", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Filter Clinics at Midnight",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Filter Clinics at Midnight": {
-      "main": [[{ "node": "Reset Each Clinic (Loop)", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Reset Each Clinic (Loop)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Reset Each Clinic (Loop)": {
       "main": [
-        [{ "node": "Call fn_daily_reset", "type": "main", "index": 0 }],
-        [{ "node": "Cleanup Idempotency Keys", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Call fn_daily_reset",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Cleanup Idempotency Keys",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Call fn_daily_reset": {
-      "main": [[{ "node": "Reset Each Clinic (Loop)", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Reset Each Clinic (Loop)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Cleanup Idempotency Keys": {
-      "main": [[{ "node": "Supabase Keepalive Ping", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Supabase Keepalive Ping",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Supabase Keepalive Ping": {
-      "main": [[{ "node": "Oracle VM Anti-Idle", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Oracle VM Anti-Idle",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
-  "settings": { "executionOrder": "v1" },
+  "settings": {
+    "executionOrder": "v1"
+  },
   "staticData": null,
   "tags": [
-    { "name": "AI-Medical" },
-    { "name": "Cron" },
-    { "name": "Maintenance" }
+    {
+      "name": "AI-Medical"
+    },
+    {
+      "name": "Cron"
+    },
+    {
+      "name": "Maintenance"
+    }
   ],
   "triggerCount": 1,
-  "pinData": {}
+  "pinData": {},
+  "meta": {
+    "instanceId": "ai-medical-blueprint-instance"
+  },
+  "id": "7c9eb8f6-24dc-4327-9ea3-f59f0a1c76d7"
 }
