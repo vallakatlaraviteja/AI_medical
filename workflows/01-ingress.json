@@ -1,78 +1,103 @@
 {
-  "id": "d5a6b3c1-e8f2-4a91-b7d4-1c9e3f5a2b8d",
-  "name": "WF-1 WhatsApp Ingress",
-  "active": false,
+  "meta": {
+    "instanceId": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2"
+  },
   "nodes": [
     {
-      "id": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
-      "name": "WhatsApp Webhook",
-      "type": "n8n-nodes-base.webhook",
-      "typeVersion": 2,
-      "position": [250, 300],
-      "webhookId": "whatsapp-ingress",
       "parameters": {
         "httpMethod": "POST",
         "path": "webhook/whatsapp",
         "responseMode": "onReceived",
-        "responseCode": 200,
+        "responseCode": "200",
         "options": {}
-      }
+      },
+      "id": "d5a6b3c1-e8f2-4a91-b7d4-1c9e3f5a2b8d",
+      "name": "WhatsApp Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        260,
+        300
+      ],
+      "webhookId": "f7a8b9c0-d1e2-4f3a-5b6c-7d8e9f0a1b2c"
     },
     {
-      "id": "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e",
-      "name": "Verify Signature & Extract",
+      "parameters": {
+        "jsCode": "const crypto = require('crypto');\n\nconst items = $input.all();\nconst inputData = items[0].json;\n\n// --- Handle Meta GET verification challenge ---\nconst query = inputData.query || {};\nif (query['hub.mode'] === 'subscribe') {\n  if (query['hub.verify_token'] === $env.META_WHATSAPP_VERIFY_TOKEN) {\n    return [{ json: { response: query['hub.challenge'] } }];\n  }\n  throw new Error('Webhook verification failed');\n}\n\n// --- HMAC-SHA256 signature validation ---\nconst signature = inputData.headers['x-hub-signature-256'];\nconst rawBody = JSON.stringify(inputData.body);\nconst expected = 'sha256=' + crypto.createHmac('sha256', $env.META_APP_SECRET)\n  .update(rawBody)\n  .digest('hex');\n\nif (signature !== expected) {\n  throw new Error('Invalid webhook signature');\n}\n\n// --- Extract text message ---\nconst entry = inputData.body?.entry?.[0];\nconst change = entry?.changes?.[0]?.value;\nconst message = change?.messages?.[0];\n\nif (!message || message.type !== 'text') {\n  return [];\n}\n\nreturn [{\n  json: {\n    message_id: message.id,\n    patient_phone: message.from,\n    patient_message: message.text.body,\n    phone_number_id: change.metadata.phone_number_id,\n    timestamp: message.timestamp\n  }\n}];"
+      },
+      "id": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      "name": "Verify Signature",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [480, 300],
-      "parameters": {
-        "jsCode": "const crypto = require('crypto');\n\n// --- META WEBHOOK VERIFICATION (GET challenge) ---\nconst inputData = $input.first().json;\nconst query = inputData.query || {};\nif (query['hub.mode'] === 'subscribe') {\n  if (query['hub.verify_token'] === $env.META_WHATSAPP_VERIFY_TOKEN) {\n    return [{ json: { response: query['hub.challenge'] } }];\n  }\n  throw new Error('Webhook verification failed: token mismatch');\n}\n\n// --- SIGNATURE VALIDATION ---\nconst signature = inputData.headers['x-hub-signature-256'];\nconst rawBody = JSON.stringify(inputData.body);\nconst expected = 'sha256=' + crypto.createHmac('sha256', $env.META_APP_SECRET)\n  .update(rawBody)\n  .digest('hex');\n\nif (signature !== expected) {\n  throw new Error('Invalid webhook signature');\n}\n\n// --- EXTRACT MESSAGE ---\nconst entry = inputData.body?.entry?.[0];\nconst change = entry?.changes?.[0]?.value;\nconst message = change?.messages?.[0];\n\nif (!message || message.type !== 'text') {\n  return [];  // silently skip non-text (images, reactions, status updates)\n}\n\nreturn [{\n  json: {\n    message_id: message.id,\n    patient_phone: message.from,\n    patient_message: message.text.body,\n    phone_number_id: change.metadata.phone_number_id,\n    timestamp: message.timestamp\n  }\n}];"
-      }
+      "position": [
+        500,
+        300
+      ]
     },
     {
-      "id": "c3d4e5f6-a7b8-4c9d-0e1f-2a3b4c5d6e7f",
-      "name": "Resolve Clinic ID",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [710, 300],
       "parameters": {
         "method": "GET",
         "url": "={{ $env.SUPABASE_URL }}/rest/v1/clinics?whatsapp_phone_number_id=eq.{{ $json.phone_number_id }}&is_active=eq.true&select=clinic_id",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_ROLE_KEY }}" },
-            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_ROLE_KEY }}" }
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_SERVICE_ROLE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_SERVICE_ROLE_KEY }}"
+            }
           ]
         },
         "options": {}
-      }
+      },
+      "id": "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e",
+      "name": "Resolve Clinic",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        740,
+        300
+      ]
     },
     {
-      "id": "d4e5f6a7-b8c9-4d0e-1f2a-3b4c5d6e7f8a",
+      "parameters": {
+        "jsCode": "const prev = $('Verify Signature').first().json;\nconst clinicResult = $input.first().json;\n\nif (!clinicResult || !clinicResult.clinic_id) {\n  throw new Error('No active clinic found for this phone_number_id');\n}\n\nreturn [{\n  json: {\n    ...prev,\n    clinic_id: clinicResult.clinic_id\n  }\n}];"
+      },
+      "id": "c3d4e5f6-a7b8-4c9d-0e1f-2a3b4c5d6e7f",
       "name": "Merge Clinic ID",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [940, 300],
-      "parameters": {
-        "jsCode": "const prev = $('Verify Signature & Extract').first().json;\nconst clinicRow = $input.first().json;\n\nif (!clinicRow || !clinicRow.clinic_id) {\n  throw new Error('No active clinic found for this phone_number_id');\n}\n\nreturn [{\n  json: {\n    ...prev,\n    clinic_id: clinicRow.clinic_id\n  }\n}];"
-      }
+      "position": [
+        980,
+        300
+      ]
     },
     {
-      "id": "e5f6a7b8-c9d0-4e1f-2a3b-4c5d6e7f8a9b",
-      "name": "Idempotency Check",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [1170, 300],
       "parameters": {
         "method": "POST",
         "url": "={{ $env.SUPABASE_URL }}/rest/v1/idempotency_keys",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_ROLE_KEY }}" },
-            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_ROLE_KEY }}" },
-            { "name": "Content-Type", "value": "application/json" },
-            { "name": "Prefer", "value": "return=minimal" }
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_SERVICE_ROLE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_SERVICE_ROLE_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=minimal"
+            }
           ]
         },
         "sendBody": true,
@@ -85,14 +110,17 @@
             }
           }
         }
-      }
+      },
+      "id": "d4e5f6a7-b8c9-4d0e-1f2a-3b4c5d6e7f8a",
+      "name": "Idempotency Insert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1220,
+        300
+      ]
     },
     {
-      "id": "f6a7b8c9-d0e1-4f2a-3b4c-5d6e7f8a9b0c",
-      "name": "Was Duplicate?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2,
-      "position": [1400, 300],
       "parameters": {
         "conditions": {
           "options": {
@@ -102,9 +130,9 @@
           },
           "conditions": [
             {
-              "id": "dup-check",
+              "id": "condition-dup",
               "leftValue": "={{ $response.statusCode }}",
-              "rightValue": "409",
+              "rightValue": 409,
               "operator": {
                 "type": "number",
                 "operation": "equals"
@@ -112,33 +140,43 @@
             }
           ],
           "combinator": "and"
-        }
-      }
+        },
+        "options": {}
+      },
+      "id": "e5f6a7b8-c9d0-4e1f-2a3b-4c5d6e7f8a9b",
+      "name": "Is Duplicate?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1460,
+        300
+      ]
     },
     {
-      "id": "a7b8c9d0-e1f2-4a3b-4c5d-6e7f8a9b0c1d",
-      "name": "Stop (Duplicate)",
+      "parameters": {},
+      "id": "f6a7b8c9-d0e1-4f2a-3b4c-5d6e7f8a9b0c",
+      "name": "Stop Duplicate",
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
-      "position": [1630, 200],
-      "parameters": {}
+      "position": [
+        1700,
+        180
+      ]
     },
     {
-      "id": "b8c9d0e1-f2a3-4b4c-5d6e-7f8a9b0c1d2e",
+      "parameters": {
+        "jsCode": "const supabaseUrl = $env.SUPABASE_URL;\nconst key = $env.SUPABASE_SERVICE_ROLE_KEY;\nconst clinicId = $json.clinic_id;\nconst phone = $json.patient_phone;\n\nconst fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();\n\nconst res = await fetch(\n  `${supabaseUrl}/rest/v1/conversations?clinic_id=eq.${clinicId}&patient_phone=eq.${phone}&created_at=gte.${fiveMinAgo}&select=conversation_id`,\n  {\n    headers: {\n      'apikey': key,\n      'Authorization': `Bearer ${key}`,\n      'Prefer': 'count=exact'\n    }\n  }\n);\n\nconst range = res.headers.get('content-range') || '*/0';\nconst total = parseInt(range.split('/')[1] || '0', 10);\n\nreturn [{\n  json: {\n    ...$json,\n    rate_limited: total >= 10\n  }\n}];"
+      },
+      "id": "a7b8c9d0-e1f2-4a3b-4c5d-6e7f8a9b0c1d",
       "name": "Rate Limiter",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1630, 420],
-      "parameters": {
-        "jsCode": "const supabaseUrl = $env.SUPABASE_URL;\nconst key = $env.SUPABASE_SERVICE_ROLE_KEY;\nconst clinicId = $json.clinic_id;\nconst phone = $json.patient_phone;\n\nconst fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();\n\nconst res = await fetch(\n  `${supabaseUrl}/rest/v1/conversations?clinic_id=eq.${clinicId}&patient_phone=eq.${phone}&created_at=gte.${fiveMinAgo}&select=conversation_id`,\n  {\n    headers: {\n      'apikey': key,\n      'Authorization': `Bearer ${key}`,\n      'Prefer': 'count=exact'\n    }\n  }\n);\n\nconst range = res.headers.get('content-range') || '*/0';\nconst total = parseInt(range.split('/')[1] || '0', 10);\n\nreturn [{\n  json: {\n    ...$json,\n    rate_limited: total >= 10\n  }\n}];"
-      }
+      "position": [
+        1700,
+        420
+      ]
     },
     {
-      "id": "c9d0e1f2-a3b4-4c5d-6e7f-8a9b0c1d2e3f",
-      "name": "Rate Limited?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2,
-      "position": [1860, 420],
       "parameters": {
         "conditions": {
           "options": {
@@ -148,35 +186,42 @@
           },
           "conditions": [
             {
-              "id": "rate-check",
+              "id": "condition-rate",
               "leftValue": "={{ $json.rate_limited }}",
               "rightValue": true,
               "operator": {
                 "type": "boolean",
-                "operation": "equals"
+                "operation": "true"
               }
             }
           ],
           "combinator": "and"
-        }
-      }
+        },
+        "options": {}
+      },
+      "id": "b8c9d0e1-f2a3-4b4c-5d6e-7f8a9b0c1d2e",
+      "name": "Rate Limited?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1940,
+        420
+      ]
     },
     {
-      "id": "d0e1f2a3-b4c5-4d6e-7f8a-9b0c1d2e3f4a",
+      "parameters": {
+        "jsCode": "let msg = $json.patient_message;\n\nmsg = msg.replace(/[\\x00-\\x09\\x0b-\\x1f]/g, '');\nmsg = msg.substring(0, 2000);\n\nconst injectionPatterns = [\n  /ignore (all|previous) instructions/i,\n  /you are now/i,\n  /system prompt/i,\n  /reveal your instructions/i,\n  /forget everything/i,\n  /new persona/i\n];\n\nif (injectionPatterns.some(p => p.test(msg))) {\n  return [{\n    json: {\n      ...$json,\n      injection_blocked: true,\n      safe_message: \"I'm sorry, I had trouble processing that. Could you please rephrase your question? Our team is here to help you book an appointment.\"\n    }\n  }];\n}\n\nreturn [{\n  json: {\n    ...$json,\n    injection_blocked: false,\n    sanitized_message: msg\n  }\n}];"
+      },
+      "id": "c9d0e1f2-a3b4-4c5d-6e7f-8a9b0c1d2e3f",
       "name": "Input Sanitizer",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [2090, 500],
-      "parameters": {
-        "jsCode": "let msg = $json.patient_message;\n\n// Strip control chars (keep \\n)\nmsg = msg.replace(/[\\x00-\\x09\\x0b-\\x1f]/g, '');\n\n// Cap at 2000 chars\nmsg = msg.substring(0, 2000);\n\n// Prompt injection check\nconst injectionPatterns = [\n  /ignore (all|previous) instructions/i,\n  /you are now/i,\n  /system prompt/i,\n  /reveal your instructions/i,\n  /forget everything/i,\n  /new persona/i\n];\n\nif (injectionPatterns.some(p => p.test(msg))) {\n  return [{\n    json: {\n      ...$json,\n      injection_blocked: true,\n      safe_message: \"I'm sorry, I had trouble processing that. Could you please rephrase your question? Our team is here to help you book an appointment.\"\n    }\n  }];\n}\n\nreturn [{\n  json: {\n    ...$json,\n    injection_blocked: false,\n    sanitized_message: msg\n  }\n}];"
-      }
+      "position": [
+        2180,
+        540
+      ]
     },
     {
-      "id": "e1f2a3b4-c5d6-4e7f-8a9b-0c1d2e3f4a5b",
-      "name": "Injection Blocked?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2,
-      "position": [2320, 500],
       "parameters": {
         "conditions": {
           "options": {
@@ -186,171 +231,262 @@
           },
           "conditions": [
             {
-              "id": "inj-check",
+              "id": "condition-inj",
               "leftValue": "={{ $json.injection_blocked }}",
               "rightValue": true,
               "operator": {
                 "type": "boolean",
-                "operation": "equals"
+                "operation": "true"
               }
             }
           ],
           "combinator": "and"
-        }
-      }
+        },
+        "options": {}
+      },
+      "id": "d0e1f2a3-b4c5-4d6e-7f8a-9b0c1d2e3f4a",
+      "name": "Injection Blocked?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2420,
+        540
+      ]
     },
     {
-      "id": "f2a3b4c5-d6e7-4f8a-9b0c-1d2e3f4a5b6c",
-      "name": "Send Fallback Reply",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [2320, 220],
       "parameters": {
         "method": "POST",
         "url": "=https://graph.facebook.com/v19.0/{{ $json.phone_number_id }}/messages",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "Authorization", "value": "=Bearer {{ $env.META_WHATSAPP_ACCESS_TOKEN }}" },
-            { "name": "Content-Type", "value": "application/json" }
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.META_WHATSAPP_ACCESS_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
           ]
         },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ messaging_product: 'whatsapp', to: $json.patient_phone, type: 'text', text: { body: $json.safe_message || 'Apologies, please slow down. Your messages are arriving too quickly. Try again in a few minutes.' } }) }}",
         "options": {}
-      }
-    },
-    {
-      "id": "a3b4c5d6-e7f8-4a9b-0c1d-2e3f4a5b6c7d",
-      "name": "Store User Message",
+      },
+      "id": "e1f2a3b4-c5d6-4e7f-8a9b-0c1d2e3f4a5b",
+      "name": "Send Fallback Reply",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [2550, 600],
+      "position": [
+        2420,
+        260
+      ]
+    },
+    {
       "parameters": {
         "method": "POST",
         "url": "={{ $env.SUPABASE_URL }}/rest/v1/conversations",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_ROLE_KEY }}" },
-            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_ROLE_KEY }}" },
-            { "name": "Content-Type", "value": "application/json" },
-            { "name": "Prefer", "value": "return=minimal" }
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_SERVICE_ROLE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_SERVICE_ROLE_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=minimal"
+            }
           ]
         },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ clinic_id: $json.clinic_id, patient_phone: $json.patient_phone, role: 'user', content: $json.sanitized_message }) }}",
         "options": {}
-      }
+      },
+      "id": "f2a3b4c5-d6e7-4f8a-9b0c-1d2e3f4a5b6c",
+      "name": "Store Message",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2660,
+        660
+      ]
     },
     {
-      "id": "b4c5d6e7-f8a9-4b0c-1d2e-3f4a5b6c7d8e",
-      "name": "Trigger AI Router (WF-2)",
-      "type": "n8n-nodes-base.executeWorkflow",
-      "typeVersion": 1.1,
-      "position": [2780, 600],
       "parameters": {
-        "workflowId": "={{ /* Set WF-2 workflow ID after import */ '' }}",
+        "workflowId": "={{ $env.WF2_WORKFLOW_ID || '' }}",
         "mode": "each",
         "options": {}
-      }
+      },
+      "id": "a3b4c5d6-e7f8-4a9b-0c1d-2e3f4a5b6c7d",
+      "name": "Trigger WF-2",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        2900,
+        660
+      ]
     }
   ],
   "connections": {
     "WhatsApp Webhook": {
       "main": [
         [
-          { "node": "Verify Signature & Extract", "type": "main", "index": 0 }
+          {
+            "node": "Verify Signature",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     },
-    "Verify Signature & Extract": {
+    "Verify Signature": {
       "main": [
         [
-          { "node": "Resolve Clinic ID", "type": "main", "index": 0 }
+          {
+            "node": "Resolve Clinic",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     },
-    "Resolve Clinic ID": {
+    "Resolve Clinic": {
       "main": [
         [
-          { "node": "Merge Clinic ID", "type": "main", "index": 0 }
+          {
+            "node": "Merge Clinic ID",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     },
     "Merge Clinic ID": {
       "main": [
         [
-          { "node": "Idempotency Check", "type": "main", "index": 0 }
+          {
+            "node": "Idempotency Insert",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     },
-    "Idempotency Check": {
+    "Idempotency Insert": {
       "main": [
         [
-          { "node": "Was Duplicate?", "type": "main", "index": 0 }
+          {
+            "node": "Is Duplicate?",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     },
-    "Was Duplicate?": {
+    "Is Duplicate?": {
       "main": [
         [
-          { "node": "Stop (Duplicate)", "type": "main", "index": 0 }
+          {
+            "node": "Stop Duplicate",
+            "type": "main",
+            "index": 0
+          }
         ],
         [
-          { "node": "Rate Limiter", "type": "main", "index": 0 }
+          {
+            "node": "Rate Limiter",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     },
     "Rate Limiter": {
       "main": [
         [
-          { "node": "Rate Limited?", "type": "main", "index": 0 }
+          {
+            "node": "Rate Limited?",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     },
     "Rate Limited?": {
       "main": [
         [
-          { "node": "Send Fallback Reply", "type": "main", "index": 0 }
+          {
+            "node": "Send Fallback Reply",
+            "type": "main",
+            "index": 0
+          }
         ],
         [
-          { "node": "Input Sanitizer", "type": "main", "index": 0 }
+          {
+            "node": "Input Sanitizer",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     },
     "Input Sanitizer": {
       "main": [
         [
-          { "node": "Injection Blocked?", "type": "main", "index": 0 }
+          {
+            "node": "Injection Blocked?",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     },
     "Injection Blocked?": {
       "main": [
         [
-          { "node": "Send Fallback Reply", "type": "main", "index": 0 }
+          {
+            "node": "Send Fallback Reply",
+            "type": "main",
+            "index": 0
+          }
         ],
         [
-          { "node": "Store User Message", "type": "main", "index": 0 }
+          {
+            "node": "Store Message",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     },
-    "Store User Message": {
+    "Store Message": {
       "main": [
         [
-          { "node": "Trigger AI Router (WF-2)", "type": "main", "index": 0 }
+          {
+            "node": "Trigger WF-2",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     }
   },
+  "pinData": {},
   "settings": {
     "executionOrder": "v1"
   },
-  "meta": {
-    "instanceId": "ai-medical-generated",
-    "templateCredsSetupCompleted": true
-  }
+  "staticData": null,
+  "tags": []
 }
