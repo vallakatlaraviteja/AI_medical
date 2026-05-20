@@ -1,0 +1,349 @@
+{
+  "name": "WF-2 AI Router + Booking Engine",
+  "nodes": [
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{$env.SUPABASE_URL}}/rest/v1/clinics?clinic_id=eq.{{$json.clinic_id}}&select=*",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{$env.SUPABASE_SERVICE_ROLE_KEY}}" },
+            { "name": "Authorization", "value": "=Bearer {{$env.SUPABASE_SERVICE_ROLE_KEY}}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "WF2-N01",
+      "name": "Load Clinic Context",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const supabaseUrl = $env.SUPABASE_URL;\nconst key = $env.SUPABASE_SERVICE_ROLE_KEY;\nconst clinicId = $json.clinic_id;\nconst phone = $json.patient_phone;\n\nconst patientRes = await fetch(`${supabaseUrl}/rest/v1/patients?clinic_id=eq.${clinicId}&phone=eq.${phone}&select=*`, { headers: { 'apikey': key, 'Authorization': `Bearer ${key}` } });\nconst patients = await patientRes.json();\nconst patient = patients[0] || { name: null, email: null, status: 'new', total_visits: 0 };\n\nconst histRes = await fetch(`${supabaseUrl}/rest/v1/conversations?clinic_id=eq.${clinicId}&patient_phone=eq.${phone}&select=role,content&order=created_at.desc&limit=10`, { headers: { 'apikey': key, 'Authorization': `Bearer ${key}` } });\nconst history = await histRes.json();\n\nreturn [{json: { ...$input.first().json, patient, conversation_history: history.reverse(), lead_status: patient.total_visits > 0 ? 'returning' : 'new' }}];"
+      },
+      "id": "WF2-N02",
+      "name": "Load Patient + History",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [470, 300]
+    },
+    {
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const supabaseUrl = $env.SUPABASE_URL;\nconst key = $env.SUPABASE_SERVICE_ROLE_KEY;\nconst clinicId = $json.clinic_id;\nconst clinic = $json.clinic;\n\nconst availRes = await fetch(`${supabaseUrl}/rest/v1/availability?clinic_id=eq.${clinicId}&active=eq.true&select=day_of_week,slot_start_local&order=day_of_week.asc,slot_start_local.asc`, { headers: { 'apikey': key, 'Authorization': `Bearer ${key}` } });\nconst slots = await availRes.json();\nconst days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];\nconst slotsFormatted = slots.map(s => `${days[s.day_of_week]} ${s.slot_start_local}`).join(', ');\n\nconst kb = clinic.knowledge_base || {};\nconst services = (kb.services || []).map(s => `${s.name} (${clinic.currency || 'INR'} ${s.price}, ${s.duration_min}min)`).join(', ');\n\nlet prompt = `You are a warm, professional appointment booking assistant for ${clinic.name || ''}, a ${clinic.specialty || ''} clinic.\\n\\nCLINIC INFORMATION:\\n- Doctor: ${kb.doctor || ''}\\n- Address: ${kb.address || ''}\\n- Hours: ${kb.hours || ''}\\n- Phone: ${kb.phone || ''}\\n- Services & Pricing: ${services}\\n- Available slots: ${slotsFormatted}\\n- Currency: ${clinic.currency || 'INR'}\\n\\nPATIENT CONTEXT:\\n- Patient phone: ${$json.patient_phone}\\n- Patient status: ${$json.lead_status}\\n- Patient name: ${$json.patient?.name || 'Unknown'}\\n- Previous service: ${$json.patient?.last_service || 'N/A'}\\n\\nYOUR GOALS:\\n1. Greet patient warmly. If returning, greet by name.\\n2. Understand appointment need.\\n3. Recommend a service if unsure.\\n4. Offer available slots and confirm time.\\n5. Collect full name and email.\\n6. Confirm appointment details.\\n7. Inform confirmation email will be sent.\\n\\nSTRICT RULES:\\n- NEVER confirm a slot not in the available_slots list.\\n- NEVER diagnose, prescribe, or give medical advice.\\n- NEVER share other patient info.\\n- If emergency keywords detected, respond with emergency services message.\\n- Keep messages concise (max 3 short paragraphs).\\n- Use 1-2 emojis max.\\n- Reply in patient language.\\n- When confirmed, output: BOOKING_JSON:{\"name\":\"...\",\"email\":\"...\",\"service\":\"...\",\"date\":\"...\",\"time\":\"...\"}`;\n\nreturn [{json: { ...$json, system_prompt: prompt }}];"
+      },
+      "id": "WF2-N03",
+      "name": "Build System Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [690, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.SUPABASE_URL}}/rest/v1/rpc/fn_pick_ai_provider",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{$env.SUPABASE_SERVICE_ROLE_KEY}}" },
+            { "name": "Authorization", "value": "=Bearer {{$env.SUPABASE_SERVICE_ROLE_KEY}}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"p_clinic_id\": \"{{$json.clinic_id}}\"}"
+      },
+      "id": "WF2-N04",
+      "name": "Pick AI Provider",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [910, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            { "value1": "={{$json.provider_name}}", "value2": "" }
+          ]
+        }
+      },
+      "id": "WF2-N04-IF",
+      "name": "IF Provider Available",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1130, 300]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "rules": [
+            { "output": 0, "value": "GROQ" },
+            { "output": 1, "value": "GEMINI" },
+            { "output": 2, "value": "OPENROUTER" }
+          ]
+        },
+        "dataType": "string",
+        "value1": "={{$json.provider_name}}"
+      },
+      "id": "WF2-N05",
+      "name": "AI Request Switch",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 2,
+      "position": [1350, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{$env.GROQ_API_KEY}}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"model\": \"llama-3.3-70b-versatile\", \"messages\": [{\"role\": \"system\", \"content\": \"{{$json.system_prompt}}\"}, {\"role\": \"user\", \"content\": \"<<<USER_INPUT>>>{{$json.patient_message}}<<<END_USER_INPUT>>>\"}], \"max_tokens\": 500, \"temperature\": 0.7}",
+        "options": { "timeout": 30000 }
+      },
+      "id": "WF2-N06a",
+      "name": "Call Groq API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1570, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key={{$env.GEMINI_API_KEY}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"systemInstruction\": {\"parts\": [{\"text\": \"{{$json.system_prompt}}\"}]}, \"contents\": [{\"role\": \"user\", \"parts\": [{\"text\": \"<<<USER_INPUT>>>{{$json.patient_message}}<<<END_USER_INPUT>>>\"}]}], \"generationConfig\": {\"maxOutputTokens\": 500, \"temperature\": 0.7}}",
+        "options": { "timeout": 30000 }
+      },
+      "id": "WF2-N06b",
+      "name": "Call Gemini API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1570, 350]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{$env.OPENROUTER_API_KEY}}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"model\": \"meta-llama/llama-3.3-70b-instruct:free\", \"messages\": [{\"role\": \"system\", \"content\": \"{{$json.system_prompt}}\"}, {\"role\": \"user\", \"content\": \"<<<USER_INPUT>>>{{$json.patient_message}}<<<END_USER_INPUT>>>\"}], \"max_tokens\": 500, \"temperature\": 0.7}",
+        "options": { "timeout": 30000 }
+      },
+      "id": "WF2-N06c",
+      "name": "Call OpenRouter API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1570, 500]
+    },
+    {
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const providerName = $json.provider_name;\nlet aiResponse = '';\n\nif (providerName === 'GROQ' || providerName === 'OPENROUTER') {\n  aiResponse = $json.choices?.[0]?.message?.content || '';\n} else if (providerName === 'GEMINI') {\n  aiResponse = $json.candidates?.[0]?.content?.parts?.[0]?.text || '';\n}\n\n// Call fn_increment_ai_quota and fn_mark_provider_success\nconst supabaseUrl = $env.SUPABASE_URL;\nconst key = $env.SUPABASE_SERVICE_ROLE_KEY;\nconst clinicId = $json.clinic_id;\n\nawait fetch(`${supabaseUrl}/rest/v1/rpc/fn_increment_ai_quota`, { method: 'POST', headers: { 'apikey': key, 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ p_clinic_id: clinicId, p_provider_name: providerName }) });\nawait fetch(`${supabaseUrl}/rest/v1/rpc/fn_mark_provider_success`, { method: 'POST', headers: { 'apikey': key, 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ p_clinic_id: clinicId, p_provider_name: providerName }) });\n\nreturn [{json: { ...$json, ai_raw_response: aiResponse, provider_used: providerName }}];"
+      },
+      "id": "WF2-N07",
+      "name": "Increment AI Quota + Mark Success",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1790, 300]
+    },
+    {
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "let response = $json.ai_raw_response;\nconst patientMsg = $json.patient_message.toLowerCase();\n\n// Check 1: medical compliance blocked patterns\nconst blockedPatterns = [/\\b(diagnose|diagnosed|diagnosis)\\b/i, /\\b(prescribe|prescribed|prescription)\\b/i, /\\bI recommend (you take|the medication)\\b/i, /\\b(treatment plan|medical advice)\\b/i];\nfor (const pattern of blockedPatterns) {\n  if (pattern.test(response)) {\n    response = \"I'm sorry, I had trouble processing that. Could you please rephrase your question? Our team is here to help you book an appointment.\";\n    break;\n  }\n}\n\n// Check 2: emergency keywords in patient message\nconst emergencyKw = ['chest pain', 'bleeding heavily', \"can't breathe\", 'unconscious', 'overdose', 'stroke', 'heart attack', 'emergency', 'seizure', 'allergic reaction'];\nif (emergencyKw.some(kw => patientMsg.includes(kw))) {\n  response = 'Please call emergency services (911 / 999 / 112) immediately. This is an appointment booking service only. Stay safe.';\n}\n\n// Check 3: empty response\nif (!response || response.trim().length === 0) {\n  response = \"I'm sorry, I had trouble processing that. Could you please rephrase your question? Our team is here to help you book an appointment.\";\n}\n\n// Check 4: truncate at 600 chars word boundary\nif (response.length > 600) {\n  response = response.substring(0, 600).replace(/\\s+\\S*$/, '') + '...';\n}\n\nreturn [{json: { ...$json, safe_message: response }}];"
+      },
+      "id": "WF2-N08",
+      "name": "Safety Validator",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2010, 300]
+    },
+    {
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "let safeMessage = $json.safe_message;\nlet hasBooking = false;\nlet bookingData = null;\n\nconst parts = $json.ai_raw_response.split('BOOKING_JSON:');\nif (parts.length > 1) {\n  try {\n    const jsonStr = parts[1].trim();\n    bookingData = JSON.parse(jsonStr);\n    // Validate schema\n    const emailRegex = /^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/;\n    const dateRegex = /^\\d{4}-\\d{2}-\\d{2}$/;\n    const timeRegex = /^\\d{2}:\\d{2}$/;\n    if (bookingData.name && bookingData.name.length >= 2 &&\n        emailRegex.test(bookingData.email) &&\n        bookingData.service &&\n        dateRegex.test(bookingData.date) &&\n        timeRegex.test(bookingData.time)) {\n      hasBooking = true;\n      // Remove BOOKING_JSON line from safe_message\n      safeMessage = safeMessage.split('BOOKING_JSON:')[0].trim();\n    } else {\n      bookingData = null;\n    }\n  } catch (e) {\n    bookingData = null;\n  }\n}\n\nreturn [{json: { ...$json, safe_message: safeMessage, has_booking: hasBooking, booking_data: bookingData }}];"
+      },
+      "id": "WF2-N09",
+      "name": "Extract Booking JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2230, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            { "value1": "={{$json.has_booking}}", "value2": true }
+          ]
+        }
+      },
+      "id": "WF2-N10",
+      "name": "IF Has Booking",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [2450, 300]
+    },
+    {
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const supabaseUrl = $env.SUPABASE_URL;\nconst key = $env.SUPABASE_SERVICE_ROLE_KEY;\nconst clinicId = $json.clinic_id;\nconst bd = $json.booking_data;\n\n// Upsert patient\nconst upsertRes = await fetch(`${supabaseUrl}/rest/v1/patients`, {\n  method: 'POST',\n  headers: { 'apikey': key, 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json', 'Prefer': 'resolution=merge-duplicates,return=representation' },\n  body: JSON.stringify({ clinic_id: clinicId, phone: $json.patient_phone, name: bd.name, email: bd.email, status: 'active' })\n});\nconst patient = (await upsertRes.json())[0];\n\n// Insert appointment\nconst slotStart = `${bd.date}T${bd.time}:00`;\nconst apptRes = await fetch(`${supabaseUrl}/rest/v1/appointments`, {\n  method: 'POST',\n  headers: { 'apikey': key, 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json', 'Prefer': 'return=representation' },\n  body: JSON.stringify({ clinic_id: clinicId, patient_id: patient.patient_id, service: bd.service, slot_start: slotStart, status: 'confirmed' })\n});\n\nif (apptRes.status === 409) {\n  return [{json: { ...$json, booking_failed: true, safe_message: \"I'm sorry, that slot was just taken! Could you choose another time? I can show you what's available.\" }}];\n}\n\n// Audit log\nawait fetch(`${supabaseUrl}/rest/v1/audit_log`, {\n  method: 'POST',\n  headers: { 'apikey': key, 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },\n  body: JSON.stringify({ clinic_id: clinicId, event_type: 'appointment_booked', payload: bd })\n});\n\nreturn [{json: { ...$json, booking_failed: false, patient_id: patient.patient_id }}];"
+      },
+      "id": "WF2-N10a",
+      "name": "Atomic Book Appointment",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2670, 200]
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ /* WF-3 Email workflow ID - set after import */ '' }}",
+        "options": {}
+      },
+      "id": "WF2-N10b",
+      "name": "Trigger WF-3 (Email)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [2890, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v19.0/{{$json.phone_number_id}}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{$env.META_WHATSAPP_ACCESS_TOKEN}}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"messaging_product\": \"whatsapp\", \"to\": \"{{$json.patient_phone}}\", \"type\": \"text\", \"text\": {\"body\": \"{{$json.safe_message}}\"}}"
+      },
+      "id": "WF2-N11",
+      "name": "Send WhatsApp Reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [3110, 300]
+    },
+    {
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const supabaseUrl = $env.SUPABASE_URL;\nconst key = $env.SUPABASE_SERVICE_ROLE_KEY;\n\n// Store assistant message\nawait fetch(`${supabaseUrl}/rest/v1/conversations`, {\n  method: 'POST',\n  headers: { 'apikey': key, 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },\n  body: JSON.stringify({ clinic_id: $json.clinic_id, patient_phone: $json.patient_phone, role: 'assistant', content: $json.safe_message })\n});\n\n// Audit log\nawait fetch(`${supabaseUrl}/rest/v1/audit_log`, {\n  method: 'POST',\n  headers: { 'apikey': key, 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },\n  body: JSON.stringify({ clinic_id: $json.clinic_id, event_type: 'message_sent', payload: { provider_used: $json.provider_used, has_booking: $json.has_booking } })\n});\n\nreturn [{json: { success: true }}];"
+      },
+      "id": "WF2-N11a",
+      "name": "Store Assistant Message + Audit Log",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3330, 300]
+    },
+    {
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const supabaseUrl = $env.SUPABASE_URL;\nconst key = $env.SUPABASE_SERVICE_ROLE_KEY;\n\n// Insert into DLQ\nawait fetch(`${supabaseUrl}/rest/v1/dead_letter_queue`, {\n  method: 'POST',\n  headers: { 'apikey': key, 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },\n  body: JSON.stringify({ clinic_id: $json.clinic_id, workflow_name: 'WF-2', payload: { patient_phone: $json.patient_phone, patient_message: $json.patient_message, message_id: $json.message_id }, error_message: 'All AI providers exhausted/down', status: 'pending', retry_count: 0, max_retries: 3 })\n});\n\n// Alert admin via Telegram\nawait fetch(`https://api.telegram.org/bot${$env.TELEGRAM_ADMIN_BOT_TOKEN}/sendMessage`, {\n  method: 'POST',\n  headers: { 'Content-Type': 'application/json' },\n  body: JSON.stringify({ chat_id: $env.TELEGRAM_ADMIN_CHAT_ID, text: `\\u26a0 All AI providers down for clinic ${$json.clinic_id}. Message queued in DLQ.` })\n});\n\nreturn [{json: { ...$json, safe_message: \"I'm sorry, I had trouble processing that. Could you please rephrase your question? Our team is here to help you book an appointment.\" }}];"
+      },
+      "id": "WF2-N12",
+      "name": "All AI Providers Failed - DLQ",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1790, 550]
+    }
+  ],
+  "connections": {
+    "Load Clinic Context": {
+      "main": [[{ "node": "Load Patient + History", "type": "main", "index": 0 }]]
+    },
+    "Load Patient + History": {
+      "main": [[{ "node": "Build System Prompt", "type": "main", "index": 0 }]]
+    },
+    "Build System Prompt": {
+      "main": [[{ "node": "Pick AI Provider", "type": "main", "index": 0 }]]
+    },
+    "Pick AI Provider": {
+      "main": [[{ "node": "IF Provider Available", "type": "main", "index": 0 }]]
+    },
+    "IF Provider Available": {
+      "main": [
+        [{ "node": "All AI Providers Failed - DLQ", "type": "main", "index": 0 }],
+        [{ "node": "AI Request Switch", "type": "main", "index": 0 }]
+      ]
+    },
+    "AI Request Switch": {
+      "main": [
+        [{ "node": "Call Groq API", "type": "main", "index": 0 }],
+        [{ "node": "Call Gemini API", "type": "main", "index": 0 }],
+        [{ "node": "Call OpenRouter API", "type": "main", "index": 0 }]
+      ]
+    },
+    "Call Groq API": {
+      "main": [[{ "node": "Increment AI Quota + Mark Success", "type": "main", "index": 0 }]]
+    },
+    "Call Gemini API": {
+      "main": [[{ "node": "Increment AI Quota + Mark Success", "type": "main", "index": 0 }]]
+    },
+    "Call OpenRouter API": {
+      "main": [[{ "node": "Increment AI Quota + Mark Success", "type": "main", "index": 0 }]]
+    },
+    "Increment AI Quota + Mark Success": {
+      "main": [[{ "node": "Safety Validator", "type": "main", "index": 0 }]]
+    },
+    "Safety Validator": {
+      "main": [[{ "node": "Extract Booking JSON", "type": "main", "index": 0 }]]
+    },
+    "Extract Booking JSON": {
+      "main": [[{ "node": "IF Has Booking", "type": "main", "index": 0 }]]
+    },
+    "IF Has Booking": {
+      "main": [
+        [{ "node": "Atomic Book Appointment", "type": "main", "index": 0 }],
+        [{ "node": "Send WhatsApp Reply", "type": "main", "index": 0 }]
+      ]
+    },
+    "Atomic Book Appointment": {
+      "main": [[{ "node": "Trigger WF-3 (Email)", "type": "main", "index": 0 }]]
+    },
+    "Trigger WF-3 (Email)": {
+      "main": [[{ "node": "Send WhatsApp Reply", "type": "main", "index": 0 }]]
+    },
+    "Send WhatsApp Reply": {
+      "main": [[{ "node": "Store Assistant Message + Audit Log", "type": "main", "index": 0 }]]
+    },
+    "All AI Providers Failed - DLQ": {
+      "main": [[{ "node": "Send WhatsApp Reply", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": { "executionOrder": "v1" },
+  "staticData": null,
+  "tags": [
+    { "name": "AI-Medical" },
+    { "name": "AI-Router" },
+    { "name": "Booking" }
+  ],
+  "triggerCount": 0,
+  "pinData": {}
+}
