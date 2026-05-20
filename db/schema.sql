@@ -77,6 +77,11 @@ CREATE TABLE IF NOT EXISTS availability (
 
 CREATE INDEX IF NOT EXISTS idx_availability_clinic_dow ON availability(clinic_id, day_of_week) WHERE active = TRUE;
 
+-- Prevent duplicate slot definitions if schema is re-applied (idempotent seed safety)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_availability_slot
+    ON availability(clinic_id, day_of_week, slot_start_local, COALESCE(doctor_name, '__none__'))
+    WHERE active = TRUE;
+
 COMMENT ON TABLE availability IS 'Slot grid per clinic. Replaces fragile string slots in knowledge_base.';
 
 -- ============================================================================
@@ -482,7 +487,7 @@ BEGIN
             v_end := v_t + INTERVAL '30 minutes';
             INSERT INTO availability (clinic_id, doctor_name, day_of_week, slot_start_local, slot_end_local, max_capacity)
             VALUES ('00000000-0000-0000-0000-000000000001', 'Dr. Ravi Kumar', v_dow, v_t, v_end, 1)
-            ON CONFLICT DO NOTHING;
+            ON CONFLICT (clinic_id, day_of_week, slot_start_local, COALESCE(doctor_name, '__none__')) WHERE active = TRUE DO NOTHING;
             v_t := v_end;
         END LOOP;
     END LOOP;
@@ -492,7 +497,7 @@ BEGIN
         v_end := v_t + INTERVAL '30 minutes';
         INSERT INTO availability (clinic_id, doctor_name, day_of_week, slot_start_local, slot_end_local, max_capacity)
         VALUES ('00000000-0000-0000-0000-000000000001', 'Dr. Ravi Kumar', 6, v_t, v_end, 1)
-        ON CONFLICT DO NOTHING;
+        ON CONFLICT (clinic_id, day_of_week, slot_start_local, COALESCE(doctor_name, '__none__')) WHERE active = TRUE DO NOTHING;
         v_t := v_end;
     END LOOP;
 END$$;
